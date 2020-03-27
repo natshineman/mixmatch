@@ -33,20 +33,22 @@ FLAGS = flags.FLAGS
 
 
 class MixMatch(models.MultiModel):
-
+    # kwargs incase we need to pass other named values
     def augment(self, x, l, beta, **kwargs):
         assert 0, 'Do not call.'
-
+    #label guessing function
     def guess_label(self, y, classifier, T, **kwargs):
         del kwargs
+        # classify all examples in y
         logits_y = [classifier(yi, training=True) for yi in y]
         logits_y = tf.concat(logits_y, 0)
         # Compute predicted probability distribution py.
         p_model_y = tf.reshape(tf.nn.softmax(logits_y), [len(y), -1, self.nclass])
         p_model_y = tf.reduce_mean(p_model_y, axis=0)
-        # Compute the target distribution.
+        # Compute the target distribution.  Sharpening function
         p_target = tf.pow(p_model_y, 1. / T)
         p_target /= tf.reduce_sum(p_target, axis=1, keep_dims=True)
+        # easy dict allows attribute access to dict values
         return EasyDict(p_target=p_target, p_model=p_model_y)
 
     def model(self, batch, lr, wd, ema, beta, w_match, warmup_kimg=1024, nu=2, mixmode='xxy.yxy', **kwargs):
@@ -60,9 +62,11 @@ class MixMatch(models.MultiModel):
         classifier = functools.partial(self.classifier, **kwargs)
 
         y = tf.reshape(tf.transpose(y_in, [1, 0, 2, 3, 4]), [-1] + hwc)
+        # generate guessed label
         guess = self.guess_label(tf.split(y, nu), classifier, T=0.5, **kwargs)
         ly = tf.stop_gradient(guess.p_target)
         lx = tf.one_hot(l_in, self.nclass)
+        # apply mixup
         xy, labels_xy = augment([x_in] + tf.split(y, nu), [lx] + [ly] * nu, [beta, beta])
         x, y = xy[0], xy[1:]
         labels_x, labels_y = labels_xy[0], tf.concat(labels_xy[1:], 0)
@@ -105,6 +109,9 @@ class MixMatch(models.MultiModel):
             x=x_in, y=y_in, label=l_in, train_op=train_op, tune_op=train_bn,
             classify_raw=tf.nn.softmax(classifier(x_in, training=False)),  # No EMA, for debugging.
             classify_op=tf.nn.softmax(classifier(x_in, getter=ema_getter, training=False)))
+
+        def cutmix():
+            # cutmix regularization to replace mixup
 
 
 def main(argv):
